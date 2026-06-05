@@ -1,4 +1,4 @@
-<img width="1814" height="880" alt="image" src="https://github.com/user-attachments/assets/0a5a77c2-dfe5-428f-a196-094f729413b7" /># ScaleToScaleEnergyTransfer.jl
+ScaleToScaleEnergyTransfer.jl
 Energy transfer from scale to scale (or computationally feasibly, shell to shell)
 
 
