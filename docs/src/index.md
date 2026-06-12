@@ -6,6 +6,7 @@ standard methods for computing kinetic energy transfer across scales in turbulen
 - **Spectral flux** Π(K) — cumulative energy crossing wavenumber threshold K
 - **Shell-to-shell transfer** T(n, m) — directed energy from mediator shell m to receiver shell n
 - **Coarse-graining flux** Π_ℓ(x) — pointwise scale-to-scale flux at filter scale ℓ
+- **Triadic Orthogonal Decomposition** — frequency-domain modal decomposition of triadic nonlinear interactions
 
 ---
 
@@ -28,6 +29,7 @@ dependencies. Load `FFTW` to activate the O(N log N) FFT fast path automatically
 | Spectral flux | `SerialBackend()` | `FFTBackend()` | `using FFTW` |
 | Shell-to-shell | `SerialBackend()` | `FFTBackend()` | `using FFTW` |
 | Coarse-graining | — | — | `using CoarseGrainingEnergyFluxes` |
+| Triadic Orthogonal Decomposition | `SerialBackend()` | `FFTBackend()` / `ThreadedBackend()` | `using FFTW` / `using OhMyThreads` |
 
 ---
 
@@ -70,6 +72,26 @@ result = calculate_shell_to_shell_transfer(û, ks;
 result.transfer_matrix        # T(n,m) — N_sh × N_sh
 result.net_transfer           # Σ_m T(n,m) per receiver shell
 result.max_antisymmetry_error # max|T(n,m)+T(m,n)| — should be ≈ 0
+```
+
+## Quickstart: Triadic Orthogonal Decomposition
+
+```julia
+using FlowEnergyTransfer
+using FFTW  # activates FFTBackend for fast temporal DFTs
+
+# 3D data array: (nt, nvar, nx)
+nt, nvar, nx = 256, 1, 32
+X = randn(nt, nvar, nx)
+
+# Run TOD using the unified entry point
+method = TriadicOrthogonalDecompositionMethod(nfft=64, noverlap=32, nmode=2)
+result = calculate_energy_transfer(method, X; dt=0.01, backend=FFTBackend())
+
+result.frequencies          # Shifted frequency axes
+result.mode_bispectrum      # Singular values λ(fl, fn, mode)
+result.modes                # Dict mapping (l, n) to mode NamedTuples
+result.modal_energy_budget  # Energy transfer per triad per mode
 ```
 
 ## Zero-Alloc Hot-Loop Usage

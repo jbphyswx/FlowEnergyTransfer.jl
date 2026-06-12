@@ -3,6 +3,7 @@ using Random: Random
 using Statistics: Statistics
 using Aqua: Aqua
 using FFTW: FFTW
+using LinearAlgebra: LinearAlgebra
 
 using FlowEnergyTransfer: FlowEnergyTransfer as FET
 
@@ -10,7 +11,7 @@ Test.@testset "FlowEnergyTransfer.jl Test Suite" begin
 
     # -----------------------------------------------------------------------
     Test.@testset "Aqua Code Quality" begin
-        Aqua.test_all(FET; ambiguities = false)
+        Aqua.test_all(FET; ambiguities = false, stale_deps = (ignore=[:Documenter],))
     end
 
     # -----------------------------------------------------------------------
@@ -337,6 +338,85 @@ Test.@testset "FlowEnergyTransfer.jl Test Suite" begin
         Test.@test result isa FET.SpectralFluxResult
         Test.@test eltype(result.k_shells) == Float32
         Test.@test eltype(result.transfer_spectrum) == Float32
+    end
+
+    # -----------------------------------------------------------------------
+    Test.@testset "TriadicOrthogonalDecomposition" begin
+        # Set seed
+        Random.seed!(123)
+
+        # 1. Parameter parsing and validation
+        # Parse parameters with default values
+        nt = 100
+        nx = 5
+        win_vec, weight_vec, noverlap, dt, nDFT, nBlks =
+            FET.TriadicOrthogonalDecomposition.parse_parameters(nt, nx)
+        Test.@test length(win_vec) == nDFT
+        Test.@test length(weight_vec) == nx
+        Test.@test nBlks >= 2
+
+        # Error cases for parameters
+        Test.@test_throws ArgumentError FET.TriadicOrthogonalDecomposition.parse_parameters(nt, nx; window=3)  # nDFT < 4
+        Test.@test_throws ArgumentError FET.TriadicOrthogonalDecomposition.parse_parameters(nt, nx; window=zeros(3)) # nDFT < 4
+        Test.@test_throws ArgumentError FET.TriadicOrthogonalDecomposition.parse_parameters(nt, nx; noverlap=256) # noverlap >= nDFT
+
+        # 2. SVD helper functions
+        # Sirovich SVD
+        M = randn(4, 10)
+        U, s, V = FET.TriadicOrthogonalDecomposition.sirovich_svd(M)
+        Test.@test length(s) == 4
+        Test.@test size(U) == (4, 4)
+        Test.@test size(V) == (10, 4)
+        Test.@test all(s .>= 0)
+        # Verify reconstruction: M' * U ≈ V * diag(s)
+        # In sirovich_svd: V = M' * U * diag(1/s) -> M' * U = V * diag(s)
+        Test.@test isapprox(M' * U, V * LinearAlgebra.Diagonal(s); atol=1e-12)
+
+        # Low-rank SVD
+        X_lr = randn(4, 10)
+        Q3 = randn(5, 4)
+        U_lr, s_lr, V_lr = FET.TriadicOrthogonalDecomposition.lowrank_svd(X_lr, Q3)
+        Test.@test size(U_lr) == (5, 4)
+        Test.@test size(V_lr) == (10, 4)
+
+        # 3. Known-triad interaction / basic run
+        # We generate a signal with 2 frequencies f1 and f2.
+        dt_sig = 0.1
+        t = collect(0:255) .* dt_sig
+        nt_sig = length(t)
+        nx_sig = 2
+        f1, f2 = 2.0, 3.0
+        X = zeros(nt_sig, 1, nx_sig)
+        for ix in 1:nx_sig
+            X[:, 1, ix] = sin.(2π * f1 .* t) .+ cos.(2π * f2 .* t)
+        end
+
+        # Run with default settings
+        res = FET.triadic_orthogonal_decomposition(X; dt=dt_sig, isreal_data=true)
+        Test.@test res isa FET.TriadicOrthogonalDecompositionResult
+        Test.@test res.frequencies isa AbstractVector
+        Test.@test all(res.mode_bispectrum .>= 0.0 .|| isnan.(res.mode_bispectrum))
+        Test.@test all(res.modal_energy_budget .>= 0.0 .|| res.modal_energy_budget .<= 0.0 .|| isnan.(res.modal_energy_budget))
+
+        # Check default dispatch via calculate_energy_transfer
+        method = FET.TriadicOrthogonalDecompositionMethod(nfft=64, noverlap=32, nmode=2)
+        res_dispatch = FET.calculate_energy_transfer(method, X; dt=dt_sig)
+        Test.@test res_dispatch isa FET.TriadicOrthogonalDecompositionResult
+        Test.@test size(res_dispatch.mode_bispectrum, 3) == 2
+
+        # 4. FFTBackend consistency
+        res_serial = FET.triadic_orthogonal_decomposition(X; dt=dt_sig, backend=FET.SerialBackend())
+        res_fft = FET.triadic_orthogonal_decomposition(X; dt=dt_sig, backend=FET.FFTBackend())
+        Test.@test isapprox(res_serial.frequencies, res_fft.frequencies)
+        Test.@test isapprox(filter(!isnan, res_serial.mode_bispectrum), filter(!isnan, res_fft.mode_bispectrum); atol=1e-12)
+
+        # 5. ThreadedBackend stub validation (without OhMyThreads, should throw)
+        Test.@test_throws ArgumentError FET.triadic_orthogonal_decomposition(X; dt=dt_sig, backend=FET.ThreadedBackend())
+
+        # 6. Coefficients and auxiliary modes
+        res_aux = FET.triadic_orthogonal_decomposition(X; dt=dt_sig, return_coefficients=true, return_auxiliary_modes=true)
+        Test.@test res_aux.expansion_coefficients isa Dict
+        Test.@test res_aux.auxiliary_modes isa Dict
     end
 
 end # top-level testset

@@ -26,6 +26,14 @@ calculate_shell_to_shell_transfer!
 calculate_coarse_graining_flux
 ```
 
+## Triadic Orthogonal Decomposition
+
+```@docs
+triadic_orthogonal_decomposition
+TriadicOrthogonalDecompositionMethod
+TriadicOrthogonalDecompositionResult
+```
+
 ## Nonlinear Term
 
 ```@docs

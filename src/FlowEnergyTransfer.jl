@@ -6,15 +6,16 @@ using PrecompileTools: PrecompileTools
 # Submodule includes
 # ---------------------------------------------------------------------------
 
-include("Types.jl")
-include("Utils.jl")
-include("ShellBinning.jl")
+include("types.jl")
+include("utils.jl")
+include("ShellToShell/ShellBinning.jl")
 include("Filters.jl")
 include("Workspaces.jl")
 include("NonlinearTerm.jl")
 include("SpectralFlux.jl")
 include("CoarseGrainingFlux.jl")
-include("ShellToShellTransfer.jl")
+include("ShellToShell/ShellToShellTransfer.jl")
+include("ScaleToScale/TriadicOrthogonalDecomposition/TriadicOrthogonalDecomposition.jl")
 
 # ---------------------------------------------------------------------------
 # Re-exports
@@ -25,6 +26,7 @@ using .Types:
     SpectralFluxMethod,
     CoarseGrainingFluxMethod,
     ShellToShellTransferMethod,
+    TriadicOrthogonalDecompositionMethod,
     AbstractFilter,
     SharpSpectralFilter,
     GaussianFilter,
@@ -42,13 +44,14 @@ using .Types:
     SpectralFluxResult,
     CoarseGrainingFluxResult,
     CoarseGrainingFluxResultWithDiagnostics,
-    ShellToShellResult
+    ShellToShellResult,
+    TriadicOrthogonalDecompositionResult
 
-export AbstractEnergyTransferMethod, SpectralFluxMethod, CoarseGrainingFluxMethod, ShellToShellTransferMethod
+export AbstractEnergyTransferMethod, SpectralFluxMethod, CoarseGrainingFluxMethod, ShellToShellTransferMethod, TriadicOrthogonalDecompositionMethod
 export AbstractFilter, SharpSpectralFilter, GaussianFilter, TopHatFilter
 export AbstractShellBinning, LinearBinning, LogarithmicBinning, DyadicBinning, CustomBinning
 export AbstractExecutionBackend, SerialBackend, ThreadedBackend, FFTBackend, NUFFTBackend
-export SpectralFluxResult, CoarseGrainingFluxResult, CoarseGrainingFluxResultWithDiagnostics, ShellToShellResult
+export SpectralFluxResult, CoarseGrainingFluxResult, CoarseGrainingFluxResultWithDiagnostics, ShellToShellResult, TriadicOrthogonalDecompositionResult
 
 using .Utils:
     wavenumber_grid,
@@ -77,10 +80,12 @@ export compute_nonlinear_term, compute_nonlinear_term!
 using .SpectralFlux: calculate_spectral_flux, calculate_spectral_flux!
 using .CoarseGrainingFlux: calculate_coarse_graining_flux
 using .ShellToShellTransfer: calculate_shell_to_shell_transfer, calculate_shell_to_shell_transfer!
+using .TriadicOrthogonalDecomposition: triadic_orthogonal_decomposition
 
 export calculate_spectral_flux, calculate_spectral_flux!
 export calculate_coarse_graining_flux
 export calculate_shell_to_shell_transfer, calculate_shell_to_shell_transfer!
+export triadic_orthogonal_decomposition
 export calculate_energy_transfer
 
 # ---------------------------------------------------------------------------
@@ -164,6 +169,15 @@ function calculate_energy_transfer(
     kwargs...,
 )
     return calculate_shell_to_shell_transfer(velocity_hat, ks; binning=method.binning, kwargs...)
+end
+
+function calculate_energy_transfer(
+    method::TriadicOrthogonalDecompositionMethod,
+    X::AbstractArray;
+    kwargs...,
+)
+    return triadic_orthogonal_decomposition(X;
+        window=method.nfft, noverlap=method.noverlap, nmode=method.nmode, kwargs...)
 end
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ methods for computing kinetic energy transfer across scales in turbulent flow:
 - **Spectral flux** Π(K) — cumulative energy crossing a wavenumber threshold K
 - **Shell-to-shell transfer** T(n, m) — directed energy transfer from shell m to shell n
 - **Coarse-graining flux** Π_ℓ(x) — pointwise scale-to-scale flux at filter scale ℓ
+- **Triadic Orthogonal Decomposition** — frequency-domain modal decomposition of triadic nonlinear interactions
 
 All methods support both an allocating convenience API and a zero-alloc `!`-variant taking
 preallocated workspace structs — suitable for tight loops and time-stepping codes.
@@ -48,6 +49,7 @@ Pkg.add("FlowEnergyTransfer")
 | Nonlinear term / spectral flux | `SerialBackend()` (direct sum) | `FFTBackend()` | `using FFTW` |
 | Shell-to-shell transfer | `SerialBackend()` | `FFTBackend()` | `using FFTW` |
 | Coarse-graining flux | — | — | `using CoarseGrainingEnergyFluxes` |
+| Triadic Orthogonal Decomposition | `SerialBackend()` | `FFTBackend()` / `ThreadedBackend()` | `using FFTW` / `using OhMyThreads` |
 
 ---
 
@@ -85,6 +87,26 @@ result.transfer_matrix         # T(n,m) — N_shells × N_shells
 result.max_antisymmetry_error  # should be ≈ 0 for divergence-free fields
 ```
 
+## Quickstart: Triadic Orthogonal Decomposition
+
+```julia
+using FlowEnergyTransfer
+using FFTW  # activates FFTBackend for fast temporal DFTs
+
+# 3D data array: (nt, nvar, nx)
+nt, nvar, nx = 256, 1, 32
+X = randn(nt, nvar, nx)
+
+# Run TOD using the unified entry point
+method = TriadicOrthogonalDecompositionMethod(nfft=64, noverlap=32, nmode=2)
+result = calculate_energy_transfer(method, X; dt=0.01, backend=FFTBackend())
+
+result.frequencies          # Shifted frequency axes
+result.mode_bispectrum      # Singular values λ(fl, fn, mode)
+result.modes                # Dict mapping (l, n) to mode NamedTuples
+result.modal_energy_budget  # Energy transfer per triad per mode
+```
+
 ## Zero-Alloc Hot-Loop Usage
 
 ```julia
@@ -108,6 +130,7 @@ calculate_shell_to_shell_transfer!(result, ws, û, ks; dealiasing=true)
 | `calculate_spectral_flux` / `!` | Spectral energy flux Π(K) |
 | `calculate_shell_to_shell_transfer` / `!` | Shell-to-shell matrix T(n,m) |
 | `calculate_coarse_graining_flux` | Pointwise coarse-graining flux |
+| `triadic_orthogonal_decomposition` | Triadic Orthogonal Decomposition (TOD) |
 | `compute_nonlinear_term` / `!` | Advection term N̂(k) = FFT[(u·∇)u] |
 | `wavenumber_grid` | Wavenumber axes for an N-D periodic domain |
 | `wavenumber_magnitude_grid` | |k| at every spectral grid point |

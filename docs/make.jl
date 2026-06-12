@@ -1,5 +1,6 @@
 using Documenter: Documenter
 using FlowEnergyTransfer: FlowEnergyTransfer
+using FlowEnergyTransfer
 using FFTW: FFTW
 
 Documenter.makedocs(;

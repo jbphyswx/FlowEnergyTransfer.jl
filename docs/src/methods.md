@@ -115,3 +115,33 @@ filtered strain-rate tensor. The overbar denotes convolution with a kernel at sc
 This method is implemented via the `CoarseGrainingEnergyFluxes` extension.
 
 **References:** Aluie & Eyink (2009) Phys. Rev. Lett. 103, 174505.
+
+---
+
+## Triadic Orthogonal Decomposition (TOD)
+
+Triadic Orthogonal Decomposition (Yeung, Chu & Schmidt 2026) decomposes three-wave (triadic) nonlinear interactions in the temporal-frequency domain. It uses the method of snapshots to extract coherent modes that optimally capture spectral momentum transfer for a given frequency triad $(f_k, f_l, f_n)$ satisfying the resonance condition:
+
+```math
+f_k + f_l = f_n
+```
+
+### SVD Formulation
+
+For each valid frequency triad, we construct:
+1. The **recipient** (LHS) data matrix ``\hat{Q}_n`` at frequency ``f_n`` across all time blocks (size ``n_{State} \times n_{Blocks}``).
+2. The **convective** (RHS nonlinear advection) matrix ``\hat{Q}_{kl} = Q(\hat{q}_k, \hat{q}_l)`` (size ``n_{State} \times n_{Blocks}``).
+
+We perform a spatially-weighted low-rank SVD of the cross-correlation matrix between the convective and recipient fields. The resulting singular values and singular vectors define:
+- **Mode Bispectrum** ``\lambda(f_l, f_n, m)``: The singular values quantifying the coupling strength of mode $m$.
+- **Convective Modes** ``\psi_m``: Coherent spatial structures of the advecting field.
+- **Recipient Modes** ``\phi_m``: Coherent spatial structures of the recipient field.
+- **Modal Energy Budget** ``T(f_l, f_n, m)``: The net energy transfer associated with mode $m$, computed as:
+
+```math
+T(f_l, f_n, m) = \lambda_m \text{Re}\langle \phi_m, W \psi_m \rangle
+```
+
+where ``W`` is the spatial inner-product weighting matrix.
+
+**References:** Yeung, Chu & Schmidt (2026) — *Triadic orthogonal decomposition reveals nonlinearity in fluid flows* J. Fluid Mech. 1031, A34. [DOI: 10.1017/jfm.2026.11183](https://doi.org/10.1017/jfm.2026.11183)

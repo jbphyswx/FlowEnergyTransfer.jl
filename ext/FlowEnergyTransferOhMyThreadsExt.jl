@@ -1,6 +1,7 @@
 module FlowEnergyTransferOhMyThreadsExt
 
 using OhMyThreads: OhMyThreads
+using LinearAlgebra: LinearAlgebra
 using FlowEnergyTransfer: FlowEnergyTransfer as FET
 using FlowEnergyTransfer.Types: AbstractShellBinning, LinearBinning, ShellToShellResult
 using FlowEnergyTransfer.ShellBinning: shell_edges, shell_centers, shell_mask
@@ -107,6 +108,93 @@ end
 # Register stub override so ThreadedBackend dispatches here
 function FET.ShellToShellTransfer._shell_to_shell_threaded(args...; kwargs...)
     throw(ArgumentError("ThreadedBackend shell-to-shell requires OhMyThreads. Run `using OhMyThreads`."))
+end
+
+# ---------------------------------------------------------------------------
+# Override TriadicOrthogonalDecomposition._triadic_loop_threaded!
+# ---------------------------------------------------------------------------
+
+"""
+    _triadic_loop_threaded!(...)
+
+Thread-parallel triad loop using OhMyThreads. Each triad is independent
+(read-only Q_hat, writes to separate Dict slots), so this is embarrassingly parallel.
+"""
+function FET.TriadicOrthogonalDecomposition._triadic_loop_threaded!(
+    L, P, T_budget, A_out, Xi_out,
+    Q_hat, f_idx, fk_idx, fl_idx, fn_idx,
+    weights, nBlks, nFreq, nState, nx, nmode,
+    Q_nonlinear, LHS,
+    return_coefficients, return_auxiliary_modes,
+)
+    nTriads = length(fk_idx)
+    nStateNx = nState * nx
+
+    # Thread-local result accumulators
+    local_Ls = [fill(NaN, nFreq, nFreq, nmode) for _ in 1:Threads.nthreads()]
+    local_Ts = [fill(NaN, nFreq, nFreq, nmode) for _ in 1:Threads.nthreads()]
+    local_Ps = [Dict{Tuple{Int,Int}, NamedTuple}() for _ in 1:Threads.nthreads()]
+    local_As = return_coefficients ? [Dict{Tuple{Int,Int}, NamedTuple}() for _ in 1:Threads.nthreads()] : nothing
+    local_Xis = return_auxiliary_modes ? [Dict{Tuple{Int,Int}, NamedTuple}() for _ in 1:Threads.nthreads()] : nothing
+
+    OhMyThreads.@tasks for i in 1:nTriads
+        tid = Threads.threadid()
+        fi_k = fk_idx[i]
+        fi_l = fl_idx[i]
+        fi_n = fn_idx[i]
+
+        Q_n_raw = Q_hat[fi_n, :, :, :]
+        Q_k_raw = Q_hat[fi_k, :, :, :]
+        Q_l_raw = Q_hat[fi_l, :, :, :]
+
+        Q_hat_n = reshape(permutedims(LHS(Q_n_raw), (2, 1, 3)), nStateNx, nBlks)
+        Q_hat_kl = reshape(Q_nonlinear(Q_k_raw, Q_l_raw), nStateNx, nBlks)
+
+        U, s, V = FET.TriadicOrthogonalDecomposition.triadic_svd(Q_hat_n, Q_hat_kl, weights, nBlks)
+
+        nm = min(nmode, length(s))
+        u = U[:, 1:nm]
+        v = V[:, 1:nm]
+
+        for j in 1:nm
+            local_Ls[tid][fi_l, fi_n, j] = s[j]
+            local_Ts[tid][fi_l, fi_n, j] = s[j] * real(LinearAlgebra.dot(v[:, j], weights .* u[:, j]))
+        end
+
+        local_Ps[tid][(fi_l, fi_n)] = (convective=u, recipient=v)
+
+        if return_coefficients
+            A_conv = u' * (Q_hat_kl .* weights)
+            A_recip = v' * (Q_hat_n .* weights)
+            local_As[tid][(fi_l, fi_n)] = (convective=A_conv, recipient=A_recip)
+
+            if return_auxiliary_modes
+                Q_hat_l = reshape(permutedims(LHS(Q_l_raw), (2, 1, 3)), nStateNx, nBlks)
+                Q_hat_k = reshape(permutedims(LHS(Q_k_raw), (2, 1, 3)), nStateNx, nBlks)
+                inv_s = 1 ./ s[1:nm]
+                donor_mode = Q_hat_l * A_recip' * LinearAlgebra.Diagonal(inv_s) ./ nBlks
+                catalyst_mode = Q_hat_k * A_recip' * LinearAlgebra.Diagonal(inv_s) ./ nBlks
+                local_Xis[tid][(fi_l, fi_n)] = (donor=donor_mode[:, 1:nm], catalyst=catalyst_mode[:, 1:nm])
+            end
+        end
+    end
+
+    # Merge thread-local results
+    for tid in 1:Threads.nthreads()
+        for idx in CartesianIndices(L)
+            if !isnan(local_Ls[tid][idx])
+                L[idx] = local_Ls[tid][idx]
+                T_budget[idx] = local_Ts[tid][idx]
+            end
+        end
+        merge!(P, local_Ps[tid])
+        if return_coefficients
+            merge!(A_out, local_As[tid])
+            if return_auxiliary_modes
+                merge!(Xi_out, local_Xis[tid])
+            end
+        end
+    end
 end
 
 end # module FlowEnergyTransferOhMyThreadsExt

@@ -178,4 +178,29 @@ function _build_k_component_fft(ks::Tuple, d::Int, ns::Tuple)
     return kc
 end
 
+# ---------------------------------------------------------------------------
+# Override TriadicOrthogonalDecomposition._temporal_block_dft_fft!
+# ---------------------------------------------------------------------------
+
+"""
+    _temporal_block_dft_fft!(dft_col, segment_col, window, win_weight, nDFT)
+
+FFTW-accelerated temporal block DFT for a single spatial point.
+Applies window, FFT via FFTW, normalizes, and fftshifts the result.
+"""
+function FET.TriadicOrthogonalDecomposition._temporal_block_dft_fft!(
+    dft_col,
+    segment_col,
+    window,
+    win_weight,
+    nDFT,
+)
+    windowed = segment_col .* window
+    result = FFTW.fft(windowed) .* (win_weight / nDFT)
+    # fftshift
+    shift = iseven(nDFT) ? nDFT ÷ 2 : (nDFT - 1) ÷ 2
+    dft_col .= circshift(result, shift)
+    return dft_col
+end
+
 end # module FlowEnergyTransferFFTWExt
